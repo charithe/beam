@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.io.gcp.bigquery;
 
 import com.google.api.services.bigquery.model.TableRow;
+import com.google.api.services.bigquery.model.TableSchema;
 import com.google.auto.service.AutoService;
 import java.util.List;
 import org.apache.beam.sdk.coders.CoderProvider;
@@ -32,6 +33,7 @@ public class BigQueryCoderProviderRegistrar implements CoderProviderRegistrar {
   @Override
   public List<CoderProvider> getCoderProviders() {
     return ImmutableList.of(
-        CoderProviders.forCoder(TypeDescriptor.of(TableRow.class), TableRowJsonCoder.of()));
+            CoderProviders.forCoder(TypeDescriptor.of(TableRow.class), TableRowJsonCoder.of()),
+            CoderProviders.forCoder(TypeDescriptor.of(TableSchema.class), TableSchemaJsonCoder.of()));
   }
 }

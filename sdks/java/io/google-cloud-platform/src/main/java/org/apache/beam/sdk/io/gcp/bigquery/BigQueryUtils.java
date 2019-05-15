@@ -258,6 +258,20 @@ public class BigQueryUtils {
     return fromTableFieldSchema(tableSchema.getFields());
   }
 
+  private static final BigQueryIO.TypedRead.ToBeamRowFunction<TableRow> TABLE_ROW_TO_BEAM_ROW_FUNCTION =
+          (Schema beamSchema, TableSchema tblSchema) -> (TableRow tr) -> toBeamRow(beamSchema, tblSchema, tr);
+
+  public static final BigQueryIO.TypedRead.ToBeamRowFunction<TableRow> tableRowToBeamRow() {
+    return TABLE_ROW_TO_BEAM_ROW_FUNCTION;
+  }
+
+  private static final BigQueryIO.TypedRead.FromBeamRowFunction<TableRow> TABLE_ROW_FROM_BEAM_ROW_FUNCTION =
+          (Schema bs, TableSchema ts) -> BigQueryUtils::toTableRow;
+
+  public static final BigQueryIO.TypedRead.FromBeamRowFunction<TableRow> tableRowFromBeamRow() {
+    return TABLE_ROW_FROM_BEAM_ROW_FUNCTION;
+  }
+
   private static final SerializableFunction<Row, TableRow> ROW_TO_TABLE_ROW =
       new ToTableRow(SerializableFunctions.identity());
 
