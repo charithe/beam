@@ -46,11 +46,13 @@ import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.protobuf.ByteStringCoder;
 import org.apache.beam.sdk.extensions.protobuf.ProtoCoder;
+import org.apache.beam.sdk.extensions.sql.SqlTransform;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.QueryPriority;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.SourceTestUtils;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -62,9 +64,7 @@ import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.DisplayDataEvaluator;
-import org.apache.beam.sdk.values.KV;
-import org.apache.beam.sdk.values.PBegin;
-import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.*;
 import org.apache.beam.vendor.guava.v20_0.com.google.common.collect.ImmutableList;
 import org.apache.beam.vendor.guava.v20_0.com.google.common.collect.Iterables;
 import org.apache.beam.vendor.guava.v20_0.com.google.common.collect.Lists;
@@ -402,6 +402,76 @@ public class BigQueryIOReadTest implements Serializable {
     PAssert.that(output)
         .containsInAnyOrder(ImmutableList.of(KV.of("a", 1L), KV.of("b", 2L), KV.of("c", 3L)));
     p.run();
+  }
+
+
+  @Test
+  public void testReadTableWithSqlTransform() throws IOException, InterruptedException {
+    Table sometable = new Table();
+    sometable.setSchema(
+            new TableSchema()
+                    .setFields(
+                            ImmutableList.of(
+                                    new TableFieldSchema().setName("name").setType("STRING"),
+                                    new TableFieldSchema().setName("number").setType("INTEGER"))));
+    sometable.setTableReference(
+            new TableReference()
+                    .setProjectId("non-executing-project")
+                    .setDatasetId("somedataset")
+                    .setTableId("sometable"));
+    sometable.setNumBytes(1024L * 1024L);
+    FakeDatasetService fakeDatasetService = new FakeDatasetService();
+    fakeDatasetService.createDataset("non-executing-project", "somedataset", "", "", null);
+    fakeDatasetService.createTable(sometable);
+
+    List<TableRow> records =
+            Lists.newArrayList(
+                    new TableRow().set("name", "a").set("number", 1L),
+                    new TableRow().set("name", "b").set("number", 2L),
+                    new TableRow().set("name", "c").set("number", 3L));
+    fakeDatasetService.insertAll(sometable.getTableReference(), records, null);
+
+    FakeBigQueryServices fakeBqServices =
+            new FakeBigQueryServices()
+                    .withJobService(new FakeJobService())
+                    .withDatasetService(fakeDatasetService);
+
+    Schema schema =
+            Schema.of(
+                    Schema.Field.of("name", Schema.FieldType.STRING),
+                    Schema.Field.of("number", Schema.FieldType.INT64));
+
+    BigQueryIO.TypedRead<TableRow> read =
+            BigQueryIO.readTableRows()
+                    .from("non-executing-project:somedataset.sometable")
+                    .withTestServices(fakeBqServices)
+                    .withoutValidation();
+
+    PCollection<TableRow> bqRows = p.apply(read);
+    PCollection<TableRow> bqRowsWithSchema = bqRows.setSchema(schema,
+            (TableRow tr) -> Row.withSchema(schema).addValues(tr.get("name"), toLong(tr.get("number"))).build(),
+            (Row r) -> new TableRow().set("name", r.getString("name")).set("number", r.getInt64("number")));
+
+    PCollection<Row> output =
+            PCollectionTuple.of("mytable", bqRowsWithSchema)
+                    .apply(SqlTransform.query("SELECT name, number FROM mytable"));
+
+    PAssert.that(output).containsInAnyOrder(ImmutableList.of(
+            Row.withSchema(schema).addValues("a", 1L).build(),
+            Row.withSchema(schema).addValues("b", 2L).build(),
+            Row.withSchema(schema).addValues("c", 3L).build()));
+
+    p.run();
+  }
+
+  private Long toLong(Object v) {
+    if (v instanceof Long) {
+      return (Long) v;
+    } else if (v instanceof String) {
+      return Long.valueOf((String) v);
+    }
+
+    return 0L;
   }
 
   @Test

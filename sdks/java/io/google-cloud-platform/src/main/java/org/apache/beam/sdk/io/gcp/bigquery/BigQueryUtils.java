@@ -28,13 +28,11 @@ import com.google.auto.value.AutoValue;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.beam.sdk.schemas.LogicalTypes;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.Schema.Field;
 import org.apache.beam.sdk.schemas.Schema.FieldType;
@@ -149,6 +147,73 @@ public class BigQueryUtils {
     return BEAM_TO_BIGQUERY_TYPE_MAPPING.get(fieldType.getTypeName());
   }
 
+  /**
+   * Get the Beam {@link FieldType} from a BigQuery type name.
+   * @param typeName Name of the type
+   * @param nestedFields Nested fields for the given type (eg. RECORD type)
+   * @return Corresponding Beam {@link FieldType}
+   */
+  private static FieldType fromTableFieldSchemaType(
+          String typeName, List<TableFieldSchema> nestedFields) {
+    switch (typeName) {
+      case "STRING":
+        return FieldType.STRING;
+      case "BYTES":
+        return FieldType.BYTES;
+      case "INT64":
+      case "INTEGER":
+        return FieldType.INT64;
+      case "FLOAT64":
+      case "FLOAT":
+        return FieldType.DOUBLE;
+      case "BOOL":
+      case "BOOLEAN":
+        return FieldType.BOOLEAN;
+      case "TIMESTAMP":
+        return FieldType.logicalType(
+                new LogicalTypes.PassThroughLogicalType<Instant>(
+                        "SqlTimestampWithLocalTzType", "", FieldType.DATETIME) {});
+      case "TIME":
+        return FieldType.logicalType(
+                new LogicalTypes.PassThroughLogicalType<Instant>(
+                        "SqlTimeType", "", FieldType.DATETIME) {});
+      case "DATE":
+        return FieldType.logicalType(
+                new LogicalTypes.PassThroughLogicalType<Instant>(
+                        "SqlDateType", "", FieldType.DATETIME) {});
+      case "DATETIME":
+        return FieldType.DATETIME;
+      case "STRUCT":
+      case "RECORD":
+        Schema rowSchema = fromTableFieldSchema(nestedFields);
+        return FieldType.row(rowSchema);
+      default:
+        return FieldType.STRING;
+    }
+  }
+
+  private static Schema fromTableFieldSchema(List<TableFieldSchema> tableFieldSchemas) {
+    Schema.Builder schemaBuilder = Schema.builder();
+    for (TableFieldSchema tableFieldSchema : tableFieldSchemas) {
+      FieldType fieldType =
+              fromTableFieldSchemaType(tableFieldSchema.getType(), tableFieldSchema.getFields());
+
+      Optional<Mode> fieldMode = Optional.ofNullable(tableFieldSchema.getMode()).map(Mode::valueOf);
+      if (fieldMode.filter(m -> m == Mode.REPEATED).isPresent()) {
+        fieldType = FieldType.array(fieldType);
+      }
+
+      boolean nullable = fieldMode.filter(m -> m == Mode.NULLABLE).isPresent();
+      Field field = Field.of(tableFieldSchema.getName(), fieldType).withNullable(nullable);
+      if (tableFieldSchema.getDescription() != null
+              && !"".equals(tableFieldSchema.getDescription())) {
+        field = field.withDescription(tableFieldSchema.getDescription());
+      }
+      schemaBuilder.addField(field);
+    }
+    return schemaBuilder.build();
+  }
+
   private static List<TableFieldSchema> toTableFieldSchema(Schema schema) {
     List<TableFieldSchema> fields = new ArrayList<>(schema.getFieldCount());
     for (Field schemaField : schema.getFields()) {
@@ -186,6 +251,11 @@ public class BigQueryUtils {
   /** Convert a Beam {@link Schema} to a BigQuery {@link TableSchema}. */
   public static TableSchema toTableSchema(Schema schema) {
     return new TableSchema().setFields(toTableFieldSchema(schema));
+  }
+
+  /** Convert a BigQuery {@link TableSchema} to a Beam {@link Schema}. */
+  public static Schema fromTableSchema(TableSchema tableSchema) {
+    return fromTableFieldSchema(tableSchema.getFields());
   }
 
   private static final SerializableFunction<Row, TableRow> ROW_TO_TABLE_ROW =
