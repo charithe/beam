@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.io.gcp.bigquery;
 
 import com.google.api.services.bigquery.model.TableReference;
+import java.io.IOException;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.SerializableFunction;
@@ -26,8 +27,6 @@ import org.apache.beam.vendor.guava.v20_0.com.google.common.annotations.VisibleF
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-
 /** A {@link BigQuerySourceBase} for querying BigQuery tables. */
 @VisibleForTesting
 class BigQueryQuerySource<T> extends BigQuerySourceBase<T> {
@@ -35,31 +34,25 @@ class BigQueryQuerySource<T> extends BigQuerySourceBase<T> {
   private static final Logger LOG = LoggerFactory.getLogger(BigQueryQuerySource.class);
 
   static <T> BigQueryQuerySource<T> create(
-          String stepUuid,
-          BigQueryQuerySourceDef queryDef,
-          BigQueryServices bqServices,
-          Coder<T> coder,
-          SerializableFunction<SchemaAndRecord, T> parseFn) {
-    return new BigQueryQuerySource<>(
-        stepUuid,
-            queryDef,
-        bqServices,
-        coder,
-            parseFn);
+      String stepUuid,
+      BigQueryQuerySourceDef queryDef,
+      BigQueryServices bqServices,
+      Coder<T> coder,
+      SerializableFunction<SchemaAndRecord, T> parseFn) {
+    return new BigQueryQuerySource<>(stepUuid, queryDef, bqServices, coder, parseFn);
   }
 
   private final BigQueryQuerySourceDef queryDef;
 
   private BigQueryQuerySource(
-          String stepUuid,
-          BigQueryQuerySourceDef queryDef,
-          BigQueryServices bqServices,
-          Coder<T> coder,
-          SerializableFunction<SchemaAndRecord, T> parseFn) {
+      String stepUuid,
+      BigQueryQuerySourceDef queryDef,
+      BigQueryServices bqServices,
+      Coder<T> coder,
+      SerializableFunction<SchemaAndRecord, T> parseFn) {
     super(stepUuid, bqServices, coder, parseFn);
     this.queryDef = queryDef;
   }
-
 
   @Override
   public long getEstimatedSizeBytes(PipelineOptions options) throws Exception {

@@ -40,7 +40,6 @@ import com.google.cloud.bigquery.storage.v1beta1.Storage.CreateReadSessionReques
 import com.google.cloud.bigquery.storage.v1beta1.Storage.ReadSession;
 import com.google.cloud.bigquery.storage.v1beta1.Storage.Stream;
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -388,11 +387,10 @@ public class BigQueryIO {
    */
   public static TypedRead<TableRow> readTableRows() {
     return read(new TableRowParser())
-            .withCoder(TableRowJsonCoder.of())
-            .withToBeamRowFn(BigQueryUtils.tableRowToBeamRow())
-            .withFromBeamRowFn(BigQueryUtils.tableRowFromBeamRow());
+        .withCoder(TableRowJsonCoder.of())
+        .withToBeamRowFn(BigQueryUtils.tableRowToBeamRow())
+        .withFromBeamRowFn(BigQueryUtils.tableRowFromBeamRow());
   }
-
 
   /**
    * Reads from a BigQuery table or query and returns a {@link PCollection} with one element per
@@ -582,12 +580,11 @@ public class BigQueryIO {
       DIRECT_READ,
     }
 
+    interface ToBeamRowFunction<T>
+        extends SerializableFunction<Schema, SerializableFunction<T, Row>> {}
 
-    interface ToBeamRowFunction<T> extends SerializableBiFunction<Schema, TableSchema, SerializableFunction<T, Row>> {
-    }
-
-    interface FromBeamRowFunction<T> extends SerializableBiFunction<Schema, TableSchema, SerializableFunction<Row, T>> {
-    }
+    interface FromBeamRowFunction<T>
+        extends SerializableFunction<Schema, SerializableFunction<Row, T>> {}
 
     abstract Builder<T> toBuilder();
 
@@ -722,18 +719,17 @@ public class BigQueryIO {
     private BigQuerySourceDef createSourceDef() {
       BigQuerySourceDef sourceDef;
       if (getQuery() == null) {
-        sourceDef =
-                BigQueryTableSourceDef.create(getBigQueryServices(), getTableProvider());
+        sourceDef = BigQueryTableSourceDef.create(getBigQueryServices(), getTableProvider());
       } else {
         sourceDef =
-                BigQueryQuerySourceDef.create(
-                        getBigQueryServices(),
-                        getQuery(),
-                        getFlattenResults(),
-                        getUseLegacySql(),
-                        MoreObjects.firstNonNull(getQueryPriority(), QueryPriority.BATCH),
-                        getQueryLocation(),
-                        getKmsKey());
+            BigQueryQuerySourceDef.create(
+                getBigQueryServices(),
+                getQuery(),
+                getFlattenResults(),
+                getUseLegacySql(),
+                MoreObjects.firstNonNull(getQueryPriority(), QueryPriority.BATCH),
+                getQueryLocation(),
+                getKmsKey());
       }
       return sourceDef;
     }
@@ -875,7 +871,10 @@ public class BigQueryIO {
             p.apply("TriggerIdCreation", Create.of(staticJobUuid))
                 .apply("ViewId", View.asSingleton());
         // Apply the traditional Source model.
-        rows = p.apply(org.apache.beam.sdk.io.Read.from(sourceDef.toSource(staticJobUuid, coder, getParseFn())));
+        rows =
+            p.apply(
+                org.apache.beam.sdk.io.Read.from(
+                    sourceDef.toSource(staticJobUuid, coder, getParseFn())));
       } else {
         // Create a singleton job ID token at execution time.
         jobIdTokenCollection =
@@ -901,7 +900,8 @@ public class BigQueryIO {
                           @ProcessElement
                           public void processElement(ProcessContext c) throws Exception {
                             String jobUuid = c.element();
-                            BigQuerySourceBase<T> source = sourceDef.toSource(jobUuid, coder, getParseFn());
+                            BigQuerySourceBase<T> source =
+                                sourceDef.toSource(jobUuid, coder, getParseFn());
                             BigQueryOptions options =
                                 c.getPipelineOptions().as(BigQueryOptions.class);
                             ExtractResult res = source.extractFiles(options);
@@ -932,7 +932,8 @@ public class BigQueryIO {
                                     BigQueryHelpers.fromJsonString(
                                         c.sideInput(schemaView), TableSchema.class);
                                 String jobUuid = c.sideInput(jobIdTokenView);
-                                BigQuerySourceBase<T> source = sourceDef.toSource(jobUuid, coder, getParseFn());
+                                BigQuerySourceBase<T> source =
+                                    sourceDef.toSource(jobUuid, coder, getParseFn());
                                 List<BoundedSource<T>> sources =
                                     source.createSources(
                                         ImmutableList.of(
@@ -984,11 +985,11 @@ public class BigQueryIO {
 
       if (beamSchemaEnabled) {
         BigQueryOptions bqOptions = p.getOptions().as(BigQueryOptions.class);
-        BigQuerySourceDef.SchemaPair schemaPair = sourceDef.getSchema(bqOptions);
-        SerializableFunction<T, Row> toBeamRow = getToBeamRowFn().apply(schemaPair.getBeamSchema(), schemaPair.getTableSchema());
-        SerializableFunction<Row, T> fromBeamRow = getFromBeamRowFn().apply(schemaPair.getBeamSchema(), schemaPair.getTableSchema());
+        Schema beamSchema = sourceDef.getBeamSchema(bqOptions);
+        SerializableFunction<T, Row> toBeamRow = getToBeamRowFn().apply(beamSchema);
+        SerializableFunction<Row, T> fromBeamRow = getFromBeamRowFn().apply(beamSchema);
 
-        rows.setSchema(schemaPair.getBeamSchema(), toBeamRow, fromBeamRow);
+        rows.setSchema(beamSchema, toBeamRow, fromBeamRow);
       }
       return rows;
     }
@@ -1227,9 +1228,10 @@ public class BigQueryIO {
 
     /**
      * Sets the {@link Row} conversion function.
-     * <p>
-     * Both {@link #withToBeamRowFn(ToBeamRowFunction)} and {@link #withFromBeamRowFn(FromBeamRowFunction)} must
-     * be set to enable automatic Beam {@link Schema} support.
+     *
+     * <p>Both {@link #withToBeamRowFn(ToBeamRowFunction)} and {@link
+     * #withFromBeamRowFn(FromBeamRowFunction)} must be set to enable automatic Beam {@link Schema}
+     * support.
      */
     @Experimental(Experimental.Kind.SCHEMAS)
     public TypedRead<T> withToBeamRowFn(ToBeamRowFunction<T> toRowFn) {
@@ -1238,9 +1240,10 @@ public class BigQueryIO {
 
     /**
      * Sets the function to convert to a {@link Row}.
-     * <p>
-     * Both {@link #withToBeamRowFn(ToBeamRowFunction)} and {@link #withFromBeamRowFn(FromBeamRowFunction)} must
-     * be set to enable automatic Beam {@link Schema} support.
+     *
+     * <p>Both {@link #withToBeamRowFn(ToBeamRowFunction)} and {@link
+     * #withFromBeamRowFn(FromBeamRowFunction)} must be set to enable automatic Beam {@link Schema}
+     * support.
      */
     @Experimental(Experimental.Kind.SCHEMAS)
     public TypedRead<T> withFromBeamRowFn(FromBeamRowFunction<T> fromRowFn) {

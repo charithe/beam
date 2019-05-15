@@ -149,12 +149,13 @@ public class BigQueryUtils {
 
   /**
    * Get the Beam {@link FieldType} from a BigQuery type name.
+   *
    * @param typeName Name of the type
    * @param nestedFields Nested fields for the given type (eg. RECORD type)
    * @return Corresponding Beam {@link FieldType}
    */
   private static FieldType fromTableFieldSchemaType(
-          String typeName, List<TableFieldSchema> nestedFields) {
+      String typeName, List<TableFieldSchema> nestedFields) {
     switch (typeName) {
       case "STRING":
         return FieldType.STRING;
@@ -171,16 +172,16 @@ public class BigQueryUtils {
         return FieldType.BOOLEAN;
       case "TIMESTAMP":
         return FieldType.logicalType(
-                new LogicalTypes.PassThroughLogicalType<Instant>(
-                        "SqlTimestampWithLocalTzType", "", FieldType.DATETIME) {});
+            new LogicalTypes.PassThroughLogicalType<Instant>(
+                "SqlTimestampWithLocalTzType", "", FieldType.DATETIME) {});
       case "TIME":
         return FieldType.logicalType(
-                new LogicalTypes.PassThroughLogicalType<Instant>(
-                        "SqlTimeType", "", FieldType.DATETIME) {});
+            new LogicalTypes.PassThroughLogicalType<Instant>(
+                "SqlTimeType", "", FieldType.DATETIME) {});
       case "DATE":
         return FieldType.logicalType(
-                new LogicalTypes.PassThroughLogicalType<Instant>(
-                        "SqlDateType", "", FieldType.DATETIME) {});
+            new LogicalTypes.PassThroughLogicalType<Instant>(
+                "SqlDateType", "", FieldType.DATETIME) {});
       case "DATETIME":
         return FieldType.DATETIME;
       case "STRUCT":
@@ -196,7 +197,7 @@ public class BigQueryUtils {
     Schema.Builder schemaBuilder = Schema.builder();
     for (TableFieldSchema tableFieldSchema : tableFieldSchemas) {
       FieldType fieldType =
-              fromTableFieldSchemaType(tableFieldSchema.getType(), tableFieldSchema.getFields());
+          fromTableFieldSchemaType(tableFieldSchema.getType(), tableFieldSchema.getFields());
 
       Optional<Mode> fieldMode = Optional.ofNullable(tableFieldSchema.getMode()).map(Mode::valueOf);
       if (fieldMode.filter(m -> m == Mode.REPEATED).isPresent()) {
@@ -206,7 +207,7 @@ public class BigQueryUtils {
       boolean nullable = fieldMode.filter(m -> m == Mode.NULLABLE).isPresent();
       Field field = Field.of(tableFieldSchema.getName(), fieldType).withNullable(nullable);
       if (tableFieldSchema.getDescription() != null
-              && !"".equals(tableFieldSchema.getDescription())) {
+          && !"".equals(tableFieldSchema.getDescription())) {
         field = field.withDescription(tableFieldSchema.getDescription());
       }
       schemaBuilder.addField(field);
@@ -258,15 +259,15 @@ public class BigQueryUtils {
     return fromTableFieldSchema(tableSchema.getFields());
   }
 
-  private static final BigQueryIO.TypedRead.ToBeamRowFunction<TableRow> TABLE_ROW_TO_BEAM_ROW_FUNCTION =
-          (Schema beamSchema, TableSchema tblSchema) -> (TableRow tr) -> toBeamRow(beamSchema, tblSchema, tr);
+  private static final BigQueryIO.TypedRead.ToBeamRowFunction<TableRow>
+      TABLE_ROW_TO_BEAM_ROW_FUNCTION = beamSchema -> (TableRow tr) -> toBeamRow(beamSchema, tr);
 
   public static final BigQueryIO.TypedRead.ToBeamRowFunction<TableRow> tableRowToBeamRow() {
     return TABLE_ROW_TO_BEAM_ROW_FUNCTION;
   }
 
-  private static final BigQueryIO.TypedRead.FromBeamRowFunction<TableRow> TABLE_ROW_FROM_BEAM_ROW_FUNCTION =
-          (Schema bs, TableSchema ts) -> BigQueryUtils::toTableRow;
+  private static final BigQueryIO.TypedRead.FromBeamRowFunction<TableRow>
+      TABLE_ROW_FROM_BEAM_ROW_FUNCTION = ignored -> BigQueryUtils::toTableRow;
 
   public static final BigQueryIO.TypedRead.FromBeamRowFunction<TableRow> tableRowFromBeamRow() {
     return TABLE_ROW_FROM_BEAM_ROW_FUNCTION;
@@ -369,6 +370,17 @@ public class BigQueryUtils {
       default:
         return fieldValue;
     }
+  }
+
+  /**
+   * Tries to parse the JSON {@link TableRow} from BigQuery.
+   *
+   * <p>Only supports basic types and arrays. Doesn't support date types.
+   */
+  public static Row toBeamRow(Schema rowSchema, TableRow jsonBqRow) {
+    return rowSchema.getFields().stream()
+        .map(field -> toBeamValue(field.getType(), jsonBqRow.get(field.getName())))
+        .collect(toRow(rowSchema));
   }
 
   /**
