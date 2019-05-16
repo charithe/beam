@@ -28,7 +28,11 @@ import com.google.auto.value.AutoValue;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 import org.apache.avro.generic.GenericRecord;
@@ -128,7 +132,7 @@ public class BigQueryUtils {
           .put("SqlDateType", StandardSQLTypeName.DATE)
           .put("SqlTimeType", StandardSQLTypeName.TIME)
           .put("SqlTimeWithLocalTzType", StandardSQLTypeName.TIME)
-          .put("SqlTimestampWithLocalTzType", StandardSQLTypeName.TIMESTAMP)
+          .put("SqlTimestampWithLocalTzType", StandardSQLTypeName.DATETIME)
           .put("SqlCharType", StandardSQLTypeName.STRING)
           .build();
 
@@ -149,6 +153,8 @@ public class BigQueryUtils {
 
   /**
    * Get the Beam {@link FieldType} from a BigQuery type name.
+   *
+   * <p>Supports both standard and legacy SQL types.
    *
    * @param typeName Name of the type
    * @param nestedFields Nested fields for the given type (eg. RECORD type)
@@ -171,9 +177,7 @@ public class BigQueryUtils {
       case "BOOLEAN":
         return FieldType.BOOLEAN;
       case "TIMESTAMP":
-        return FieldType.logicalType(
-            new LogicalTypes.PassThroughLogicalType<Instant>(
-                "SqlTimestampWithLocalTzType", "", FieldType.DATETIME) {});
+        return FieldType.DATETIME;
       case "TIME":
         return FieldType.logicalType(
             new LogicalTypes.PassThroughLogicalType<Instant>(
@@ -183,13 +187,16 @@ public class BigQueryUtils {
             new LogicalTypes.PassThroughLogicalType<Instant>(
                 "SqlDateType", "", FieldType.DATETIME) {});
       case "DATETIME":
-        return FieldType.DATETIME;
+        return FieldType.logicalType(
+            new LogicalTypes.PassThroughLogicalType<Instant>(
+                "SqlTimestampWithLocalTzType", "", FieldType.DATETIME) {});
       case "STRUCT":
       case "RECORD":
         Schema rowSchema = fromTableFieldSchema(nestedFields);
         return FieldType.row(rowSchema);
       default:
-        return FieldType.STRING;
+        throw new UnsupportedOperationException(
+            "Converting BigQuery type " + typeName + " to Beam type is unsupported");
     }
   }
 
@@ -204,7 +211,9 @@ public class BigQueryUtils {
         fieldType = FieldType.array(fieldType);
       }
 
-      boolean nullable = fieldMode.filter(m -> m == Mode.NULLABLE).isPresent();
+      // if the mode is not defined or if it is set to NULLABLE, then the field is nullable
+      boolean nullable =
+          !fieldMode.isPresent() || fieldMode.filter(m -> m == Mode.NULLABLE).isPresent();
       Field field = Field.of(tableFieldSchema.getName(), fieldType).withNullable(nullable);
       if (tableFieldSchema.getDescription() != null
           && !"".equals(tableFieldSchema.getDescription())) {
@@ -375,12 +384,25 @@ public class BigQueryUtils {
   /**
    * Tries to parse the JSON {@link TableRow} from BigQuery.
    *
-   * <p>Only supports basic types and arrays. Doesn't support date types.
+   * <p>Only supports basic types and arrays. Doesn't support date types or structs.
    */
   public static Row toBeamRow(Schema rowSchema, TableRow jsonBqRow) {
     return rowSchema.getFields().stream()
-        .map(field -> toBeamValue(field.getType(), jsonBqRow.get(field.getName())))
+        .map(field -> toBeamRowFieldValue(field, jsonBqRow.get(field.getName())))
         .collect(toRow(rowSchema));
+  }
+
+  private static Object toBeamRowFieldValue(Field field, Object bqValue) {
+    if (bqValue == null) {
+      if (field.getType().getNullable()) {
+        return null;
+      } else {
+        throw new IllegalArgumentException(
+            "Received null value for non-nullable field " + field.getName());
+      }
+    }
+
+    return toBeamValue(field.getType(), bqValue);
   }
 
   /**

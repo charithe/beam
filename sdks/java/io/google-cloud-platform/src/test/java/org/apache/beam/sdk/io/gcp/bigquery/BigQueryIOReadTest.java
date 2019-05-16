@@ -451,9 +451,6 @@ public class BigQueryIOReadTest implements Serializable {
             .withoutValidation();
 
     PCollection<TableRow> bqRows = p.apply(read);
-    /*PCollection<TableRow> bqRowsWithSchema = bqRows.setSchema(schema,
-    (TableRow tr) -> Row.withSchema(schema).addValues(tr.get("name"), toLong(tr.get("number"))).build(),
-    (Row r) -> new TableRow().set("name", r.getString("name")).set("number", r.getInt64("number")));*/
 
     PCollection<Row> output =
         PCollectionTuple.of("mytable", bqRows)
